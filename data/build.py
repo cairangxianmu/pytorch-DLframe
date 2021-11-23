@@ -10,16 +10,8 @@ import torch
 import numpy as np
 import torch.distributed as dist
 from torchvision import datasets, transforms
-from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
-from timm.data import Mixup
-from timm.data import create_transform
-from timm.data.transforms import _pil_interp
 import torch.utils.data as data
 from PIL import Image
-
-from .cached_image_folder import CachedImageFolder
-from .samplers import SubsetRandomSampler
-
 
 def build_loader(config):
     config.defrost()
@@ -114,7 +106,7 @@ class add_dataset(data.Dataset):
             suffix = '_train.txt'
         else:
             suffix = '_test.txt'
-        filename = 'data/' + self.config.DATA.DATASET + '/' + self.config.DATA.DATASET + suffix
+        filename = './data/data_list/' + self.config.DATA.DATASET + suffix
         data = []
         with open(filename, 'r') as f:
             lines = f.readlines()

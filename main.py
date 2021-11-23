@@ -25,7 +25,7 @@ from optimizer import build_optimizer
 from logger import create_logger
 from utils import load_checkpoint, save_checkpoint, get_grad_norm, auto_resume_helper, compute_metrics
 from torch.utils.tensorboard import SummaryWriter
-# os.environ["CUDA_VISIBLE_DEVICES"] = '1,2,3'
+# os.environ["CUDA_VISIBLE_DEVICES"] = '2,3'
 
 try:
     # noinspection PyUnresolvedReferences
@@ -61,7 +61,7 @@ def parse_option():
 
     # distributed training
     parser.add_argument("--local_rank", type=int, help='local rank for DistributedDataParallel')
-    parser.add_argument("--is_sage_log", default='True', type=bool, help='save log and congfig file or not')
+    parser.add_argument("--is_save_log", default='True', type=bool, help='save log and congfig file or not')
 
     args, unparsed = parser.parse_known_args()
 
@@ -127,6 +127,7 @@ def main(config):
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     logger.info('Training time {}'.format(total_time_str))
+    writer.close()
 
 
 def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, lr_scheduler):
@@ -192,6 +193,7 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, lr_
         batch_time.update(time.time() - end)
         writer.add_scalar('train/%s' % 'loss', loss_meter.val)
         writer.add_scalar('train/%s' % 'grad', norm_meter.val)
+        writer.add_scalar('train/%s' % 'lr', optimizer.param_groups[0]['lr'])
 
         end = time.time()
 
@@ -290,12 +292,12 @@ if __name__ == '__main__':
     if config.AMP_OPT_LEVEL != "O0":
         assert amp is not None, "amp not installed!"
 
-    torch.distributed.init_process_group(backend='nccl', init_method='tcp://localhost:23456', world_size=1, rank=0)
+    torch.distributed.init_process_group(backend='nccl')
+    # torch.distributed.init_process_group(backend='nccl', init_method='tcp://localhost:23456', world_size=1, rank=0)
     # torch.distributed.barrier()
     local_rank = torch.distributed.get_rank()
     torch.cuda.set_device(local_rank)
     device = torch.device("cuda", local_rank)
-
     seed = config.SEED
     # + dist.get_rank()
     torch.manual_seed(seed)
@@ -303,9 +305,9 @@ if __name__ == '__main__':
     cudnn.benchmark = True
 
     # linear scale the learning rate according to total batch size, may not be optimal
-    linear_scaled_lr = config.TRAIN.BASE_LR * config.DATA.BATCH_SIZE * dist.get_world_size() / 512.0
-    linear_scaled_warmup_lr = config.TRAIN.WARMUP_LR * config.DATA.BATCH_SIZE * dist.get_world_size() / 512.0
-    linear_scaled_min_lr = config.TRAIN.MIN_LR * config.DATA.BATCH_SIZE * dist.get_world_size() / 512.0
+    linear_scaled_lr = config.TRAIN.BASE_LR * config.DATA.BATCH_SIZE / 2
+    linear_scaled_warmup_lr = config.TRAIN.WARMUP_LR * config.DATA.BATCH_SIZE / 2
+    linear_scaled_min_lr = config.TRAIN.MIN_LR * config.DATA.BATCH_SIZE / 2
     # gradient accumulation also need to scale the learning rate
     if config.TRAIN.ACCUMULATION_STEPS > 1:
         linear_scaled_lr = linear_scaled_lr * config.TRAIN.ACCUMULATION_STEPS
@@ -319,12 +321,13 @@ if __name__ == '__main__':
     config.TRAIN.MIN_LR = linear_scaled_min_lr
     config.freeze()
 
-    os.makedirs(config.OUTPUT, exist_ok=True)
+    if config.IS_SAVE_LOG:
+        os.makedirs(config.OUTPUT, exist_ok=True)
     logger = create_logger(output_dir=config.OUTPUT, dist_rank=dist.get_rank(), name=f"{config.MODEL.NAME}")
     time_string = time.strftime('%Y%m%d_%H%M', time.localtime(time.time()))
     writer = SummaryWriter(config.OUTPUT + '/logs/' + time_string)
 
-    if dist.get_rank() == 0:
+    if dist.get_rank() == 0 and config.IS_SAVE_LOG:
         path = os.path.join(config.OUTPUT, "config.json")
         with open(path, "w") as f:
             f.write(config.dump())

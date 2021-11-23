@@ -28,8 +28,6 @@ _C.DATA.DATASET = 'BHSig_H'
 _C.DATA.IMG_SIZE = 224
 # Interpolation to resize image (random, bilinear, bicubic)
 _C.DATA.INTERPOLATION = 'bicubic'
-# Cache Data in Memory, could be overwritten by command line argument
-_C.DATA.CACHE_MODE = 'part'
 # Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.
 _C.DATA.PIN_MEMORY = True
 # Number of data loading threads
@@ -85,12 +83,12 @@ _C.MODEL.SWIN_MLP.PATCH_NORM = True
 # -----------------------------------------------------------------------------
 _C.TRAIN = CN()
 _C.TRAIN.START_EPOCH = 0
-_C.TRAIN.EPOCHS = 100
-_C.TRAIN.WARMUP_EPOCHS = 20
+_C.TRAIN.EPOCHS = 30
+_C.TRAIN.WARMUP_EPOCHS = 5
 _C.TRAIN.WEIGHT_DECAY = 0.001
-_C.TRAIN.BASE_LR = 5e-4
-_C.TRAIN.WARMUP_LR = 5e-7
-_C.TRAIN.MIN_LR = 5e-6
+_C.TRAIN.BASE_LR = 5e-6
+_C.TRAIN.WARMUP_LR = 5e-8
+_C.TRAIN.MIN_LR = 5e-7
 # Clip gradient norm
 _C.TRAIN.CLIP_GRAD = 5.0
 # Auto resume from latest checkpoint
@@ -106,7 +104,7 @@ _C.TRAIN.USE_CHECKPOINT = False
 _C.TRAIN.LR_SCHEDULER = CN()
 _C.TRAIN.LR_SCHEDULER.NAME = 'cosine'
 # Epoch interval to decay LR, used in StepLRScheduler
-_C.TRAIN.LR_SCHEDULER.DECAY_EPOCHS = 30
+_C.TRAIN.LR_SCHEDULER.DECAY_EPOCHS = 10
 # LR decay rate, used in StepLRScheduler
 _C.TRAIN.LR_SCHEDULER.DECAY_RATE = 0.1
 
@@ -141,7 +139,7 @@ _C.TAG = 'default'
 # Frequency to save checkpoint
 _C.SAVE_FREQ = 1
 # Frequency to logging info
-_C.PRINT_FREQ = 10
+_C.PRINT_FREQ = 500
 _C.PRINT_VAL_EPOCH = 2
 # Fixed random seed
 _C.SEED = 0
@@ -198,8 +196,8 @@ def update_config(config, args):
         config.EVAL_MODE = True
     if args.throughput:
         config.THROUGHPUT_MODE = True
-    if args.is_sage_log:
-        config.IS_SAVE_LOG = args.is_sage_log
+    if args.is_save_log:
+        config.IS_SAVE_LOG = args.is_save_log
 
     # set local rank for distributed training
     config.LOCAL_RANK = args.local_rank
