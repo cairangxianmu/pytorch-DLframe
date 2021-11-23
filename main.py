@@ -86,6 +86,7 @@ def main(config):
     lr_scheduler = build_scheduler(config, optimizer, len(data_loader_train))
 
     criterion = torch.nn.BCEWithLogitsLoss()
+    # criterion = torch.nn.CosineEmbeddingLoss(margin=config.TRAIN.COSINE_MARGIN)
     # criterion = LabelSmoothingCrossEntropy(smoothing=config.MODEL.LABEL_SMOOTHING)
     # criterion = torch.nn.CrossEntropyLoss()
 
@@ -114,12 +115,13 @@ def main(config):
     logger.info("Start training")
     start_time = time.time()
     for epoch in range(config.TRAIN.START_EPOCH, config.TRAIN.EPOCHS):
-        data_loader_train.sampler.set_epoch(epoch)
+        if torch.cuda.device_count() > 1:
+            data_loader_train.sampler.set_epoch(epoch)
 
         train_one_epoch(config, model, criterion, data_loader_train, optimizer, epoch, lr_scheduler)
         if dist.get_rank() == 0 and (epoch % config.SAVE_FREQ == 0 or epoch == (config.TRAIN.EPOCHS - 1)):
             save_checkpoint(config, epoch, model_without_ddp, max_accuracy, optimizer, lr_scheduler, logger)
-        if epoch % config.PRINT_VAL_EPOCH:
+        if epoch % config.PRINT_VAL_EPOCH == 0:
             result = validate(config, data_loader_val, model, epoch)
             max_accuracy = max(max_accuracy, result['Accuracy_global'])
             logger.info(f'Max accuracy: {100 * max_accuracy:.5f}%')
@@ -149,6 +151,7 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, lr_
 
         if config.TRAIN.ACCUMULATION_STEPS > 1:
             loss = criterion(outputs, targets)
+            # loss = criterion(outputs[1],outputs[2], targets)
             loss = loss / config.TRAIN.ACCUMULATION_STEPS
             if config.AMP_OPT_LEVEL != "O0":
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
@@ -169,6 +172,7 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, lr_
                 lr_scheduler.step_update(epoch * num_steps + idx)
         else:
             loss = criterion(outputs, targets)
+            # loss = criterion(outputs[1],outputs[2], targets)
             optimizer.zero_grad()
             if config.AMP_OPT_LEVEL != "O0":
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
@@ -191,9 +195,10 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, lr_
         loss_meter.update(loss.item(), targets.size(0))
         norm_meter.update(grad_norm)
         batch_time.update(time.time() - end)
-        writer.add_scalar('train/%s' % 'loss', loss_meter.val)
-        writer.add_scalar('train/%s' % 'grad', norm_meter.val)
-        writer.add_scalar('train/%s' % 'lr', optimizer.param_groups[0]['lr'])
+        global_step = epoch * len(data_loader) + idx
+        writer.add_scalar('train/%s' % 'loss', loss_meter.val, global_step)
+        writer.add_scalar('train/%s' % 'grad', norm_meter.val, global_step)
+        writer.add_scalar('train/%s' % 'lr', optimizer.param_groups[0]['lr'], global_step)
 
         end = time.time()
 
@@ -220,6 +225,7 @@ def validate(config, data_loader, model, epoch=None):
         eval_epoch = config.PRINT_VAL_EPOCH
 
     criterion = torch.nn.BCEWithLogitsLoss()
+    # criterion = torch.nn.CosineEmbeddingLoss()
     model.eval()
 
     batch_time = AverageMeter()
@@ -228,7 +234,7 @@ def validate(config, data_loader, model, epoch=None):
     preds = []
     labels = []
     ids = []
-    loss = 0.0
+    loss = AverageMeter()
     for idx, (images, target, id) in enumerate(data_loader):
         images = images.cuda(non_blocking=True)
         target = target.cuda(non_blocking=True)
@@ -237,12 +243,14 @@ def validate(config, data_loader, model, epoch=None):
         output = model(images)
 
         # measure accuracy and record loss
-        loss += criterion(output, target).item()
+        loss.update(criterion(output, target).item())
+        # loss.update(criterion(output[0], output[1], target).item())
+        output = torch.cosine_similarity(output[0], output[1])
         preds.extend(output.cpu().detach().numpy())
         labels.extend(target.cpu().detach().numpy())
         ids.extend(id.detach().numpy())
 
-    loss /= len(data_loader)
+    # loss = loss.avg
     preds = np.array(preds)
     labels = np.array(labels)
     ids = np.array(ids)
@@ -256,7 +264,7 @@ def validate(config, data_loader, model, epoch=None):
         forges.append(forge)
 
     result = compute_metrics(genuines, forges)
-    writer.add_scalar('val/%s' % 'loss', loss, eval_epoch)
+    writer.add_scalar('val/%s' % 'loss', loss.avg, eval_epoch)
     writer.add_scalar('val/%s' % 'acc_user', result['Accuracy_user'], eval_epoch)
     writer.add_scalar('val/%s' % 'auc_user', result['AUC_user'], eval_epoch)
     writer.add_scalar('val/%s' % 'eer_user', result['EER_user'], eval_epoch)
@@ -274,7 +282,7 @@ def validate(config, data_loader, model, epoch=None):
     memory_used = torch.cuda.max_memory_allocated() / (1024.0 * 1024.0)
     logger.info(
         f'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-        f'Loss {loss:.4f} \t'
+        f'Loss {loss.avg:.4f} \t'
         f"Acc_global {100 * result['Accuracy_global']:.7f}\t"
         f"Acc_user {100 * result['Accuracy_user']:.7f}\t"
         f"AUC_global {100 * result['AUC_global']:.7f}\t"

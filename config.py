@@ -89,6 +89,7 @@ _C.TRAIN.WEIGHT_DECAY = 0.001
 _C.TRAIN.BASE_LR = 5e-6
 _C.TRAIN.WARMUP_LR = 5e-8
 _C.TRAIN.MIN_LR = 5e-7
+_C.TRAIN.COSINE_MARGIN = 0.2
 # Clip gradient norm
 _C.TRAIN.CLIP_GRAD = 5.0
 # Auto resume from latest checkpoint
@@ -139,8 +140,8 @@ _C.TAG = 'default'
 # Frequency to save checkpoint
 _C.SAVE_FREQ = 1
 # Frequency to logging info
-_C.PRINT_FREQ = 500
-_C.PRINT_VAL_EPOCH = 2
+_C.PRINT_FREQ = 100
+_C.PRINT_VAL_EPOCH = 1
 # Fixed random seed
 _C.SEED = 0
 # Perform evaluation only, overwritten by command line argument
